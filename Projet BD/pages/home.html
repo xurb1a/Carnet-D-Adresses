@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Carnet d'Adresses</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    .alphabet-bar {
+      position: fixed;
+      right: 10px;
+      top: 100px;
+      display: flex;
+      flex-direction: column;
+      font-size: 12px;
+      color: #555;
+      z-index: 10;
+      background-color: rgba(255, 255, 255, 0.8);
+      border-radius: 8px;
+      padding: 5px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    }
+    .alphabet-letter {
+      padding: 4px;
+      cursor: pointer;
+      text-align: center;
+      min-width: 20px;
+    }
+    .alphabet-letter:hover {
+      background-color: #eee;
+      border-radius: 4px;
+    }
+    .alphabet-letter.active {
+      background-color: #007bff;
+      color: white;
+      border-radius: 4px;
+    }
+    .letter-header {
+      padding: 5px 10px;
+      background-color: #f8f9fa;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      margin-bottom: 5px;
+      border-radius: 4px;
+      font-weight: bold;
+      color: #444;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="header">
+      <h1>Carnet d'Adresses</h1>
+      <div class="profile-section">
+        <button class="profile">
+          <img src="../css/images/user.png" alt="Profil" />
+        </button>
+        <div class="profile-dropdown" id="profileDropdown" style="display: none;">
+          <div class="profile-header">
+            <div class="user-info">
+              <div class="user-avatar" id="userInitials">U</div>
+              <div>
+                <p id="profileName">Utilisateur</p>
+                <p id="profileEmail">email@example.com</p>
+              </div>
+            </div>
+          </div>
+          <div class="profile-actions">
+            <button onclick="togglePasswordForm()">Changer mot de passe</button>
+            <div id="passwordForm" style="display:none;">
+              <input type="password" id="oldPassword" placeholder="Ancien mot de passe">
+              <input type="password" id="newPassword" placeholder="Nouveau mot de passe">
+              <button onclick="submitPasswordChange()">Valider</button>
+            </div>
+            <button class="btn-logout" onclick="logout()">Se déconnecter</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-container">
+        <input type="text" id="searchInput" placeholder="Rechercher par nom, prénom ou téléphone..." />
+      </div>
+    </div>
+
+    <div class="contacts-container">
+      <ul class="contact-list" id="contact-list">
+        <div class="empty-state" id="empty-state">
+          <p>Aucun contact trouvé</p>
+        </div>
+      </ul>
+    </div>
+  </div>
+
+  <div class="alphabet-bar" id="alphabetBar"></div>
+
+  <button class="add-btn" id="addContactButton">+</button>
+
+  <div id="contactModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <h3 id="modalTitle">Ajouter un contact</h3>
+      <form id="contactForm">
+        <input type="hidden" id="contactId">
+        <input type="text" id="contactName" placeholder="Prénom Nom" required>
+        <input type="email" id="contactEmail" placeholder="Email">
+        <input type="tel" id="contactPhone" placeholder="Téléphone">
+        <div class="modal-buttons">
+          <button type="submit">Enregistrer</button>
+          <button type="button" id="cancelModal">Annuler</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const idUtilisateur = sessionStorage.getItem('idUtilisateur');
+  if (!idUtilisateur) return window.location.href = 'login.html';
+
+  const contactList = document.getElementById('contact-list');
+  const emptyState = document.getElementById('empty-state');
+  const modal = document.getElementById('contactModal');
+  const form = document.getElementById('contactForm');
+  const searchInput = document.getElementById('searchInput');
+  const profileDropdown = document.getElementById('profileDropdown');
+  const alphabetBar = document.getElementById('alphabetBar');
+  let allContacts = [];
+  let activeLetterElement = null;
+
+  document.querySelector('.profile img').onclick = () => {
+    profileDropdown.style.display = profileDropdown.style.display === 'none' ? 'block' : 'none';
+  };
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.profile') && !e.target.closest('.profile-dropdown')) {
+      profileDropdown.style.display = 'none';
+    }
+  });
+
+  window.openModal = (mode = 'add', contact = null) => {
+    modal.style.display = 'flex';
+    document.getElementById('modalTitle').innerText =
+      mode === 'add' ? 'Ajouter un contact' : 'Modifier le contact';
+    form.reset();
+    document.getElementById('contactId').value = '';
+    if (mode === 'edit' && contact) {
+      document.getElementById('contactId').value = contact.idContact;
+      document.getElementById('contactName').value = `${contact.prenom} ${contact.nom}`;
+      document.getElementById('contactEmail').value = contact.email || '';
+      document.getElementById('contactPhone').value = contact.telephone || '';
+    }
+  };
+
+  document.getElementById('addContactButton').onclick = () => openModal('add');
+  document.getElementById('cancelModal').onclick = () => modal.style.display = 'none';
+
+  function renderContacts(contacts) {
+    contactList.innerHTML = '';
+    if (!contacts.length) return emptyState.style.display = 'block';
+    emptyState.style.display = 'none';
+
+    const grouped = {};
+    contacts.forEach(c => {
+      const letter = (c.nom && c.nom.trim()) ? c.nom.trim()[0].toUpperCase() : '#';
+      if (!grouped[letter]) grouped[letter] = [];
+      grouped[letter].push(c);
+    });
+    Object.keys(grouped).sort().forEach(letter => {
+      const section = document.createElement('div');
+      section.id = `letter-section-${letter}`;
+      section.className = 'letter-section';
+      
+      const header = document.createElement('h4');
+      header.textContent = letter;
+      header.className = 'letter-header';
+      section.appendChild(header);
+      grouped[letter].sort((a, b) => a.nom.localeCompare(b.nom)).forEach((contact, i) => {
+        const item = document.createElement('li');
+        item.className = 'contact-item';
+        const initials = `${contact.prenom?.[0] ?? ''}${contact.nom?.[0] ?? ''}`;
+        
+        const colors = ['bg-red', 'bg-purple', 'bg-indigo', 'bg-blue', 'bg-green', 'bg-orange'];
+        const colorClass = colors[i % colors.length];
+        
+        const detailsId = `details-${contact.idContact}`;
+        item.innerHTML = `
+          <div class="contact-icon ${colorClass}">${initials}</div>
+          <div class="contact-name" onclick="toggleDetails('${detailsId}')">
+            ${contact.prenom} ${contact.nom}
+            <div class="contact-details-dropdown" id="${detailsId}" style="display:none;">
+              <p><img src="../css/images/email.png" class="detail-icon" /><span class="detail-value">${contact.email || 'N/A'}</span></p>
+              <p><img src="../css/images/phone.png" class="detail-icon" /><span class="detail-value">${contact.telephone || 'N/A'}</span></p>
+            </div>
+          </div>
+          <div class="contact-actions">
+            <button class="action-modify" onclick="openModify(${contact.idContact})"><img src="../css/images/edit.png"></button>
+            <button class="action-delete" onclick="deleteContact(${contact.idContact})"><img src="../css/images/delete.png"></button>
+          </div>`;
+        section.appendChild(item);
+      });
+
+      contactList.appendChild(section);
+    });
+    createAlphabetBar(Object.keys(grouped).sort());
+  }
+
+  function createAlphabetBar(letters) {
+    alphabetBar.innerHTML = '';
+    
+    letters.forEach(letter => {
+      const el = document.createElement('div');
+      el.className = 'alphabet-letter';
+      el.dataset.letter = letter;
+      el.textContent = letter;
+      el.onclick = () => {
+        scrollToLetter(letter);
+        
+        // Highlight active letter
+        if (activeLetterElement) {
+          activeLetterElement.classList.remove('active');
+        }
+        el.classList.add('active');
+        activeLetterElement = el;
+      };
+      alphabetBar.appendChild(el);
+    });
+  }
+
+  function scrollToLetter(letter) {
+    const section = document.getElementById(`letter-section-${letter}`);
+    if (section) {
+      section.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  window.toggleDetails = (id) => {
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  };
+
+  function loadContacts() {
+    fetch(`http://localhost:5000/contacts/list/${idUtilisateur}`)
+      .then(res => res.json())
+      .then(data => {
+        allContacts = data;
+        renderContacts(allContacts);
+      });
+  }
+
+  searchInput.addEventListener('input', () => {
+    const term = searchInput.value.trim().toLowerCase();
+    const filtered = allContacts.filter(c =>
+      `${c.prenom} ${c.nom}`.toLowerCase().includes(term) ||
+      c.telephone?.toLowerCase().includes(term)
+    );
+    renderContacts(filtered);
+  });
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const fullName = document.getElementById('contactName').value.trim();
+    
+    const parts = fullName.split(' ').filter(part => part.length > 0);
+    let prenom = '', nom = '';
+    
+    if (parts.length === 1) {
+      nom = parts[0];
+    } else if (parts.length > 1) {
+      nom = parts.pop();
+      prenom = parts.join(' ');
+    }
+    
+    const email = document.getElementById('contactEmail').value;
+    const telephone = document.getElementById('contactPhone').value;
+    const idContact = document.getElementById('contactId').value;
+
+    const contact = { prenom, nom, email, telephone };
+    const method = idContact ? 'PUT' : 'POST';
+    const url = idContact ? 'http://localhost:5000/contacts/modify' : 'http://localhost:5000/contacts/add';
+    const body = idContact ? { idContact, ...contact } : { ...contact, idUtilisateur };
+
+    fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    .then(res => res.json())
+    .then(() => {
+      modal.style.display = 'none';
+      loadContacts();
+    });
+  };
+
+  window.openModify = (id) => {
+    const contact = allContacts.find(c => c.idContact === id);
+    if (contact) openModal('edit', contact);
+  };
+
+  window.deleteContact = (idContact) => {
+    if (confirm('Supprimer ce contact ?')) {
+      fetch('http://localhost:5000/contacts/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idContact, idUtilisateur })
+      }).then(() => loadContacts());
+    }
+  };
+
+  window.togglePasswordForm = () => {
+    const passwordForm = document.getElementById('passwordForm');
+    passwordForm.style.display = passwordForm.style.display === 'none' ? 'block' : 'none';
+  };
+
+window.submitPasswordChange = () => {
+  const oldPassword = document.getElementById('oldPassword').value;
+  const newPassword = document.getElementById('newPassword').value;
+  
+  if (!oldPassword || !newPassword) {
+    alert('Veuillez remplir tous les champs');
+    return;
+  }
+  
+  const idUtilisateur = sessionStorage.getItem('idUtilisateur');
+  
+  fetch('http://localhost:5000/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idUtilisateur,
+      oldPassword,
+      newPassword
+    })
+  })
+  .then(response => {
+    if (!response.ok) {
+      return response.json().then(err => Promise.reject(err));
+    }
+    return response.json();
+  })
+  .then(data => {
+    alert(data.message);
+    document.getElementById('passwordForm').style.display = 'none';
+    document.getElementById('oldPassword').value = '';
+    document.getElementById('newPassword').value = '';
+  })
+  .catch(err => {
+    alert(err.message || 'Une erreur est survenue');
+  });
+};
+
+  window.logout = () => {
+    sessionStorage.clear();
+    window.location.href = 'login.html';
+  };
+
+  fetch(`http://localhost:5000/auth/user/${idUtilisateur}`)
+  .then(res => {
+    if (!res.ok) {
+      console.error('Erreur de réponse:', res.status, res.statusText);
+      return Promise.reject(`Erreur ${res.status}: ${res.statusText}`);
+    }
+    return res.json();
+  })
+  .then(user => {
+    console.log('Données utilisateur reçues:', user);
+    if (!user || !user.nomUtilisateur) {
+      console.error('Données utilisateur invalides');
+      throw new Error('Données utilisateur invalides');
+    }
+    document.getElementById('profileName').textContent = user.nomUtilisateur;
+    document.getElementById('profileEmail').textContent = user.email || 'N/A';
+    const initials = (user.nomUtilisateur || 'U').split(' ').map(n => n[0]).join('').toUpperCase();
+    document.getElementById('userInitials').textContent = initials;
+  })
+  .catch((error) => {
+    console.error('Erreur lors du chargement du profil:', error);
+    document.getElementById('profileName').textContent = 'Erreur utilisateur';
+    document.getElementById('profileEmail').textContent = 'email@example.com';
+    document.getElementById('userInitials').textContent = 'U';
+  });
+
+  console.log('ID Utilisateur récupéré:', idUtilisateur);
+if (!idUtilisateur) {
+  console.error('ID Utilisateur manquant dans le sessionStorage');
+}
+  loadContacts();
+});
+</script>
+</body>
+</html>
